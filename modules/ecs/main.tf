@@ -83,8 +83,8 @@ resource "aws_ecs_cluster_capacity_providers" "ecs_cluster_capacity_provider" {
 # Create an ECS Task Definition
 ####################################################
 resource "aws_ecs_task_definition" "ecs_task_definition" {
-  family       = "my-ecs-task"
-  network_mode = "awsvpc"
+  family             = "my-ecs-task"
+  network_mode       = "awsvpc"
   execution_role_arn = aws_iam_role.ecsTaskExecutionRole.arn
   cpu                = 256
   runtime_platform {
@@ -124,6 +124,7 @@ resource "aws_ecs_task_definition" "ecs_task_definition" {
 ####################################################
 resource "aws_ecs_service" "ecs_service" {
   name            = "my-ecs-service"
+  launch_type     = "EC2"
   cluster         = aws_ecs_cluster.ecs_cluster.id
   task_definition = aws_ecs_task_definition.ecs_task_definition.arn
   desired_count   = 4
