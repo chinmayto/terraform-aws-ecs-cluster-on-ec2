@@ -1,0 +1,173 @@
+####################################################
+# Create an IAM role - ecsInstanceRole  
+####################################################
+data "aws_iam_policy" "ecsInstanceRolePolicy" {
+  arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+}
+data "aws_iam_policy_document" "ecsInstanceRolePolicy" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+resource "aws_iam_role" "ecsInstanceRole" {
+  name               = "ecsInstanceRole"
+  path               = "/"
+  assume_role_policy = data.aws_iam_policy_document.ecsInstanceRolePolicy.json
+}
+resource "aws_iam_role_policy_attachment" "ecsInstancePolicy" {
+  role       = aws_iam_role.ecsInstanceRole.name
+  policy_arn = data.aws_iam_policy.ecsInstanceRolePolicy.arn
+}
+resource "aws_iam_instance_profile" "ecsInstanceRoleProfile" {
+  name = aws_iam_role.ecsInstanceRole.name
+  role = aws_iam_role.ecsInstanceRole.name
+}
+
+####################################################
+# Get latest Amazon Linux 2 AMI
+####################################################
+data "aws_ami" "amazon-linux-2" {
+  most_recent = true
+  owners      = ["amazon"]
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-ecs-hvm-2.0.20230509-x86_64-ebs"]
+  }
+}
+
+####################################################
+# Create the security group for EC2
+####################################################
+resource "aws_security_group" "security_group_ec2" {
+  description = "Allow traffic for EC2"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-sg-ec2"
+  })
+}
+
+####################################################
+# Create Launch Template Resource
+####################################################
+resource "aws_launch_template" "ecs-launch-template" {
+  image_id               = data.aws_ami.amazon-linux-2.id
+  instance_type          = var.instance_type
+  key_name               = var.instance_key
+  vpc_security_group_ids = [aws_security_group.security_group_ec2.id]
+  update_default_version = true
+
+  iam_instance_profile {
+    name = aws_iam_role.ecsInstanceRole.name
+  }
+
+  monitoring {
+    enabled = true
+  }
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size = 30
+      volume_type = "gp2"
+    }
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = merge(var.common_tags, {
+      Name = "${var.naming_prefix}-ECS-Instance"
+    })
+  }
+
+  user_data = filebase64("${path.module}/ecs.sh")
+}
+
+####################################################
+# Create auto scaling group
+####################################################
+resource "aws_autoscaling_group" "aws-autoscaling-group" {
+  name                = "${var.naming_prefix}-ASG"
+  vpc_zone_identifier = tolist(var.private_subnets)
+  desired_capacity    = 2
+  max_size            = 4
+  min_size            = 1
+
+  launch_template {
+    id      = aws_launch_template.ecs-launch-template.id
+    version = aws_launch_template.ecs-launch-template.latest_version
+  }
+
+  tag {
+    key                 = "AmazonECSManaged"
+    value               = true
+    propagate_at_launch = true
+  }
+}
+
+####################################################
+# Create VPC Endpoints for following Services
+# com.amazonaws.${var.aws_region}.ecs-agent     - VPC Interface Endpoint  
+# com.amazonaws.${var.aws_region}.ecs-telemetry - VPC Interface Endpoint
+# com.amazonaws.${var.aws_region}.ecs           - VPC Interface Endpoint
+# com.amazonaws.${var.aws_region}.ecr.dkr       - VPC Interface Endpoint
+# com.amazonaws.${var.aws_region}.ecr.api       - VPC Interface Endpoint
+# com.amazonaws.${var.aws_region}.logs          - VPC Interface Endpoint
+# com.amazonaws.${var.aws_region}.s3            - VPC Gateway Endpoint
+####################################################
+locals {
+  endpoint_list = ["com.amazonaws.${var.aws_region}.ecs-agent",
+    "com.amazonaws.${var.aws_region}.ecs-telemetry",
+    "com.amazonaws.${var.aws_region}.ecs",
+    "com.amazonaws.${var.aws_region}.ecr.dkr",
+    "com.amazonaws.${var.aws_region}.ecr.api",
+    "com.amazonaws.${var.aws_region}.logs",
+  ]
+}
+
+resource "aws_vpc_endpoint" "vpc_endpoint_ecs_instance" {
+  count               = 6
+  vpc_id              = var.vpc_id
+  vpc_endpoint_type   = "Interface"
+  service_name        = local.endpoint_list[count.index]
+  subnet_ids          = var.private_subnets[*]
+  private_dns_enabled = true
+  security_group_ids  = [aws_security_group.security_group_ec2.id]
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-Endpoint-${local.endpoint_list[count.index]}"
+  })
+}
+
+####################################################
+# Create Security Group and Gateway Endpoint
+####################################################
+resource "aws_vpc_endpoint" "vpc_endpoint_ecs_instance_s3" {
+  vpc_id            = var.vpc_id
+  vpc_endpoint_type = "Gateway"
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  route_table_ids   = [var.private_route_table_id]
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-Endpoint-com.amazonaws.${var.aws_region}.s3"
+  })
+}
