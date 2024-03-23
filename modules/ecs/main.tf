@@ -124,7 +124,6 @@ resource "aws_ecs_task_definition" "ecs_task_definition" {
 ####################################################
 resource "aws_ecs_service" "ecs_service" {
   name            = "my-ecs-service"
-  launch_type     = "EC2"
   cluster         = aws_ecs_cluster.ecs_cluster.id
   task_definition = aws_ecs_task_definition.ecs_task_definition.arn
   desired_count   = 4
