@@ -26,7 +26,7 @@ resource "aws_iam_role_policy_attachment" "ecsTaskExecutionPolicy" {
 }
 
 ####################################################
-# Create cloudWatch Log Group
+# Create c udWatch Log Group
 ####################################################
 resource "aws_cloudwatch_log_group" "log" {
   name              = "/${var.ecs_cluster_name}/simplenodejsapp"
@@ -51,13 +51,14 @@ resource "aws_ecs_capacity_provider" "ecs_capacity_provider" {
   name = "capacity_provider"
 
   auto_scaling_group_provider {
-    auto_scaling_group_arn = var.auto_scaling_group_arn
+    auto_scaling_group_arn         = var.auto_scaling_group_arn
+    managed_termination_protection = "ENABLED"
 
     managed_scaling {
-      maximum_scaling_step_size = 1000
+      maximum_scaling_step_size = 5
       minimum_scaling_step_size = 1
       status                    = "ENABLED"
-      target_capacity           = 3
+      target_capacity           = 100
     }
   }
 }
@@ -67,15 +68,8 @@ resource "aws_ecs_capacity_provider" "ecs_capacity_provider" {
 # Create an ECS Cluster capacity Provider
 ####################################################
 resource "aws_ecs_cluster_capacity_providers" "ecs_cluster_capacity_provider" {
-  cluster_name = aws_ecs_cluster.ecs_cluster.name
-
+  cluster_name       = aws_ecs_cluster.ecs_cluster.name
   capacity_providers = [aws_ecs_capacity_provider.ecs_capacity_provider.name]
-
-  default_capacity_provider_strategy {
-    base              = 1
-    weight            = 100
-    capacity_provider = aws_ecs_capacity_provider.ecs_capacity_provider.name
-  }
 }
 
 
@@ -86,17 +80,18 @@ resource "aws_ecs_task_definition" "ecs_task_definition" {
   family             = "my-ecs-task"
   network_mode       = "awsvpc"
   execution_role_arn = aws_iam_role.ecsTaskExecutionRole.arn
-  cpu                = 256
+
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
   }
+
   container_definitions = jsonencode([
     {
       name      = "simple-nodejs-app"
       image     = "197317184204.dkr.ecr.us-east-1.amazonaws.com/simple-nodejs-app"
-      cpu       = 256
-      memory    = 256
+      cpu       = 100
+      memory    = 100
       essential = true
       portMappings = [
         {
@@ -107,11 +102,10 @@ resource "aws_ecs_task_definition" "ecs_task_definition" {
       ]
       logConfiguration = {
         logDriver = "awslogs"
-
         options = {
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "simplenodejsapp"
-          awslogs-group         = aws_cloudwatch_log_group.log.name
+          "awslogs-group"         = aws_cloudwatch_log_group.log.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "simplenodejsapp"
         }
       }
     }
@@ -123,29 +117,28 @@ resource "aws_ecs_task_definition" "ecs_task_definition" {
 # Define the ECS service that will run the task
 ####################################################
 resource "aws_ecs_service" "ecs_service" {
-  name            = "my-ecs-service"
-  cluster         = aws_ecs_cluster.ecs_cluster.id
-  task_definition = aws_ecs_task_definition.ecs_task_definition.arn
-  desired_count   = 4
+  name                               = "my-ecs-service"
+  cluster                            = aws_ecs_cluster.ecs_cluster.id
+  task_definition                    = aws_ecs_task_definition.ecs_task_definition.arn
+  desired_count                      = 4
+  deployment_minimum_healthy_percent = 50
+  deployment_maximum_percent         = 100
 
   network_configuration {
     subnets         = tolist(var.private_subnets)
     security_groups = [var.security_group_ec2]
   }
 
+  ## Spread tasks evenly accross all Availability Zones for High Availability
   ordered_placement_strategy {
     type  = "spread"
-    field = "instanceId"
+    field = "attribute:ecs.availability-zone"
   }
 
-  force_new_deployment = true
-  /*placement_constraints {
-    type = "distinctInstance"
-  }
-  */
-  placement_constraints {
-    type       = "memberOf"
-    expression = "attribute:ecs.instance-type =~ t3.*"
+  ## Make use of all available space on the Container Instances
+  ordered_placement_strategy {
+    type  = "binpack"
+    field = "memory"
   }
 
   triggers = {
@@ -162,6 +155,47 @@ resource "aws_ecs_service" "ecs_service" {
     container_name   = "simple-nodejs-app"
     container_port   = 8080
   }
-
 }
 
+####################################################
+# Define the ECS service auto scaling
+####################################################
+resource "aws_appautoscaling_target" "ecs_target" {
+  max_capacity       = 50
+  min_capacity       = 2
+  resource_id        = "service/${aws_ecs_cluster.ecs_cluster.name}/${aws_ecs_service.ecs_service.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "ecs_policy_memory" {
+  name               = "${var.naming_prefix}-memory-autoscaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs_target.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs_target.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs_target.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageMemoryUtilization"
+    }
+
+    target_value = 80
+  }
+}
+
+resource "aws_appautoscaling_policy" "ecs_policy_cpu" {
+  name               = "${var.naming_prefix}-cpu-autoscaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs_target.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs_target.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs_target.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+
+    target_value = 80
+  }
+}

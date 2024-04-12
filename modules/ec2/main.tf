@@ -36,7 +36,7 @@ data "aws_ami" "amazon-linux-2" {
   owners      = ["amazon"]
   filter {
     name   = "name"
-    values = ["amzn2-ami-ecs-hvm-2.0.20230509-x86_64-ebs"]
+    values = ["amzn2-ami-ecs-hvm-2.0.20240319-x86_64-ebs"]
   }
 }
 
@@ -106,17 +106,33 @@ resource "aws_launch_template" "ecs-launch-template" {
 # Create auto scaling group
 ####################################################
 resource "aws_autoscaling_group" "aws-autoscaling-group" {
-  name                = "${var.naming_prefix}-ASG"
-  vpc_zone_identifier = tolist(var.private_subnets)
-  desired_capacity    = 2
-  max_size            = 4
-  min_size            = 1
+  name                  = "${var.naming_prefix}-ASG"
+  vpc_zone_identifier   = tolist(var.private_subnets)
+  desired_capacity      = 2
+  max_size              = 6
+  min_size              = 1
+  health_check_type     = "EC2"
+  protect_from_scale_in = true
+
+  enabled_metrics = [
+    "GroupMinSize",
+    "GroupMaxSize",
+    "GroupDesiredCapacity",
+    "GroupInServiceInstances",
+    "GroupPendingInstances",
+    "GroupStandbyInstances",
+    "GroupTerminatingInstances",
+    "GroupTotalInstances"
+  ]
 
   launch_template {
     id      = aws_launch_template.ecs-launch-template.id
     version = aws_launch_template.ecs-launch-template.latest_version
   }
 
+  instance_refresh {
+    strategy = "Rolling"
+  }
   tag {
     key                 = "AmazonECSManaged"
     value               = true
@@ -144,7 +160,7 @@ locals {
   ]
 }
 
-resource "aws_vpc_endpoint" "vpc_endpoint_ecs_instance" {
+resource "aws_vpc_endpoint" "vpc_endpoint" {
   count               = 6
   vpc_id              = var.vpc_id
   vpc_endpoint_type   = "Interface"
@@ -161,7 +177,7 @@ resource "aws_vpc_endpoint" "vpc_endpoint_ecs_instance" {
 ####################################################
 # Create Security Group and Gateway Endpoint
 ####################################################
-resource "aws_vpc_endpoint" "vpc_endpoint_ecs_instance_s3" {
+resource "aws_vpc_endpoint" "vpc_endpoint_s3" {
   vpc_id            = var.vpc_id
   vpc_endpoint_type = "Gateway"
   service_name      = "com.amazonaws.${var.aws_region}.s3"

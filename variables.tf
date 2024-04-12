@@ -31,7 +31,7 @@ variable "vpc_public_subnets_cidr_block" {
 variable "instance_type" {
   type        = string
   description = "Type for EC2 Instance"
-  default     = "t3.medium"
+  default     = "c5.large"
 }
 
 variable "sg_ingress_public" {

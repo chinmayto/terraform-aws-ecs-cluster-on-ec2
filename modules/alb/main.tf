@@ -40,14 +40,21 @@ resource "aws_lb" "aws-application_load_balancer" {
 ####################################################
 # create target group for ALB
 ####################################################
-resource "aws_lb_target_group" "alb_target_group" {
+resource "aws_alb_target_group" "alb_target_group" {
   target_type = "ip"
   port        = 80
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
 
   health_check {
-    path = "/"
+    healthy_threshold   = "2"
+    unhealthy_threshold = "2"
+    interval            = "60"
+    path                = "/"
+    port                = "traffic-port"
+    timeout             = 30
+    matcher             = 200
+    protocol            = "HTTP"
   }
 
   lifecycle {
@@ -69,7 +76,7 @@ resource "aws_lb_listener" "alb_http_listener" {
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.alb_target_group.arn
+    target_group_arn = aws_alb_target_group.alb_target_group.arn
 
   }
 }

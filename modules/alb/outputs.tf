@@ -10,10 +10,10 @@ output "alb_security_group_id" {
 
 
 output "alb_target_group_arn" {
-  value = aws_lb_target_group.alb_target_group.arn
+  value = aws_alb_target_group.alb_target_group.arn
 }
 
 
 output "auto_scaling_group_id" {
-  value = aws_lb_target_group.alb_target_group.id
+  value = aws_alb_target_group.alb_target_group.id
 }
