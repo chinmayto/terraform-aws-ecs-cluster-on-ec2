@@ -26,7 +26,7 @@ resource "aws_iam_role_policy_attachment" "ecsTaskExecutionPolicy" {
 }
 
 ####################################################
-# Create c udWatch Log Group
+# Create cloudWatch Log Group
 ####################################################
 resource "aws_cloudwatch_log_group" "log" {
   name              = "/${var.ecs_cluster_name}/simplenodejsapp"

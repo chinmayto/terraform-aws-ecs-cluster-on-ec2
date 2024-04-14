@@ -175,7 +175,7 @@ resource "aws_vpc_endpoint" "vpc_endpoint" {
 }
 
 ####################################################
-# Create Security Group and Gateway Endpoint
+# Create VPC Gateway Endpoint for S3
 ####################################################
 resource "aws_vpc_endpoint" "vpc_endpoint_s3" {
   vpc_id            = var.vpc_id
