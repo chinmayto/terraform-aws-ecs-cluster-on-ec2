@@ -52,10 +52,6 @@ data "aws_ami" "amazon-linux-2" {
   owners = ["amazon"]
 }
 
-data "aws_prefix_list" "s3_prefix_list" {
-  prefix_list_id = aws_vpc_endpoint.vpc_endpoint_s3.prefix_list_id
-}
-
 ####################################################
 # Create the security group for EC2
 ####################################################
