@@ -33,11 +33,27 @@ resource "aws_iam_instance_profile" "ecsInstanceRoleProfile" {
 ####################################################
 data "aws_ami" "amazon-linux-2" {
   most_recent = true
-  owners      = ["amazon"]
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "owner-alias"
+    values = ["amazon"]
+  }
+
   filter {
     name   = "name"
-    values = ["amzn2-ami-ecs-hvm-2.0.20240319-x86_64-ebs"]
+    values = ["amzn2-ami-ecs-hvm-*-x86_64-ebs"]
   }
+
+  owners = ["amazon"]
+}
+
+data "aws_prefix_list" "s3_prefix_list" {
+  prefix_list_id = aws_vpc_endpoint.vpc_endpoint_s3.prefix_list_id
 }
 
 ####################################################
@@ -48,13 +64,23 @@ resource "aws_security_group" "security_group_ec2" {
   vpc_id      = var.vpc_id
 
   ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Allow ingress traffic from ALB on HTTP on ephemeral ports"
+    from_port       = 1024
+    to_port         = 65535
+    protocol        = "tcp"
+    security_groups = [var.alb_security_group_id]
+  }
+
+  ingress {
+    description     = "Allow SSH ingress traffic from bastion host"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [var.bastion_security_group_id]
   }
 
   egress {
+    description = "Allow all egress traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -75,6 +101,10 @@ resource "aws_launch_template" "ecs-launch-template" {
   key_name               = var.instance_key
   vpc_security_group_ids = [aws_security_group.security_group_ec2.id]
   update_default_version = true
+
+  private_dns_name_options {
+    enable_resource_name_dns_a_record = false
+  }
 
   iam_instance_profile {
     name = aws_iam_role.ecsInstanceRole.name
@@ -140,6 +170,7 @@ resource "aws_autoscaling_group" "aws-autoscaling-group" {
   }
 }
 
+
 ####################################################
 # Create VPC Endpoints for following Services
 # com.amazonaws.${var.aws_region}.ecs-agent     - VPC Interface Endpoint  
@@ -160,6 +191,37 @@ locals {
   ]
 }
 
+####################################################
+# Create the security group for VPC Endpoints
+####################################################
+resource "aws_security_group" "security_group_endpoints" {
+  description = "Allow traffic for VPC Endpoints"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description     = "Allow ingress traffic from EC2 Hosts"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.security_group_ec2.id]
+  }
+
+  egress {
+    description = "Allow all egress traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-sg-vpc-endpoints"
+  })
+}
+
+####################################################
+# Create the VPC endpoints
+####################################################
 resource "aws_vpc_endpoint" "vpc_endpoint" {
   count               = 6
   vpc_id              = var.vpc_id
@@ -167,7 +229,7 @@ resource "aws_vpc_endpoint" "vpc_endpoint" {
   service_name        = local.endpoint_list[count.index]
   subnet_ids          = var.private_subnets[*]
   private_dns_enabled = true
-  security_group_ids  = [aws_security_group.security_group_ec2.id]
+  security_group_ids  = [aws_security_group.security_group_endpoints.id]
 
   tags = merge(var.common_tags, {
     Name = "${var.naming_prefix}-Endpoint-${local.endpoint_list[count.index]}"

@@ -41,7 +41,7 @@ resource "aws_lb" "aws-application_load_balancer" {
 # create target group for ALB
 ####################################################
 resource "aws_alb_target_group" "alb_target_group" {
-  target_type = "ip"
+  target_type = "instance"
   port        = 80
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
@@ -51,7 +51,6 @@ resource "aws_alb_target_group" "alb_target_group" {
     unhealthy_threshold = "2"
     interval            = "60"
     path                = "/"
-    port                = "traffic-port"
     timeout             = 30
     matcher             = 200
     protocol            = "HTTP"

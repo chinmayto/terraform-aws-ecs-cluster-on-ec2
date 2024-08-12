@@ -1,7 +1,6 @@
 ####################################################
 # Create an IAM role - ecsTaskExecutionRole  
 ####################################################
-
 data "aws_iam_policy" "ecsTaskExecutionRolePolicy" {
   arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
@@ -63,7 +62,6 @@ resource "aws_ecs_capacity_provider" "ecs_capacity_provider" {
   }
 }
 
-
 ####################################################
 # Create an ECS Cluster capacity Provider
 ####################################################
@@ -78,7 +76,7 @@ resource "aws_ecs_cluster_capacity_providers" "ecs_cluster_capacity_provider" {
 ####################################################
 resource "aws_ecs_task_definition" "ecs_task_definition" {
   family             = "my-ecs-task"
-  network_mode       = "awsvpc"
+  network_mode       = "bridge"
   execution_role_arn = aws_iam_role.ecsTaskExecutionRole.arn
 
   runtime_platform {
@@ -90,13 +88,13 @@ resource "aws_ecs_task_definition" "ecs_task_definition" {
     {
       name      = "simple-nodejs-app"
       image     = "197317184204.dkr.ecr.us-east-1.amazonaws.com/simple-nodejs-app"
-      cpu       = 100
-      memory    = 100
+      cpu       = 200
+      memory    = 200
       essential = true
       portMappings = [
         {
           containerPort = 8080
-          hostPort      = 8080
+          hostPort      = 0
           protocol      = "tcp"
         }
       ]
@@ -123,11 +121,6 @@ resource "aws_ecs_service" "ecs_service" {
   desired_count                      = 4
   deployment_minimum_healthy_percent = 50
   deployment_maximum_percent         = 100
-
-  network_configuration {
-    subnets         = tolist(var.private_subnets)
-    security_groups = [var.security_group_ec2]
-  }
 
   ## Spread tasks evenly accross all Availability Zones for High Availability
   ordered_placement_strategy {

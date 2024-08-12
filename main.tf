@@ -34,16 +34,17 @@ module "bastion_host" {
 ####################################################
 
 module "ec2" {
-  source                 = "./modules/ec2"
-  aws_region             = var.aws_region
-  instance_type          = var.instance_type
-  instance_key           = var.instance_key
-  vpc_id                 = module.vpc.vpc_id
-  alb_security_group_id  = module.alb.alb_security_group_id
-  private_route_table_id = module.vpc.private_route_table_id
-  private_subnets        = module.vpc.private_subnets
-  common_tags            = local.common_tags
-  naming_prefix          = local.naming_prefix
+  source                    = "./modules/ec2"
+  aws_region                = var.aws_region
+  instance_type             = var.instance_type
+  instance_key              = var.instance_key
+  vpc_id                    = module.vpc.vpc_id
+  alb_security_group_id     = module.alb.alb_security_group_id
+  bastion_security_group_id = module.bastion_host.bastion_security_group_id
+  private_route_table_id    = module.vpc.private_route_table_id
+  private_subnets           = module.vpc.private_subnets
+  common_tags               = local.common_tags
+  naming_prefix             = local.naming_prefix
 }
 
 ####################################################
